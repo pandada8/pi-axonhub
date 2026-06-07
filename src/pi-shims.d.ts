@@ -104,6 +104,21 @@ declare module "@earendil-works/pi-coding-agent" {
     compat?: Model<Api>["compat"];
   }
 
+  export interface ReadonlySessionManager {
+    getSessionId(): string;
+    getSessionFile(): string | undefined;
+    getLeafId(): string | null;
+    getEntries(): unknown[];
+    getBranch(): unknown[];
+  }
+
+  export interface ExtensionContext {
+    cwd: string;
+    model: Model<Api> | undefined;
+    sessionManager: ReadonlySessionManager;
+    hasUI: boolean;
+  }
+
   export interface ExtensionAPI {
     registerProvider(
       name: string,
@@ -115,6 +130,7 @@ declare module "@earendil-works/pi-coding-agent" {
         streamSimple?: (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => AssistantMessageEventStream;
       },
     ): void;
+    on(event: string, handler: (...args: unknown[]) => unknown): void;
   }
 
   export function getAgentDir(): string;

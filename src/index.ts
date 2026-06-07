@@ -1,5 +1,5 @@
 import { type Api } from "@earendil-works/pi-ai";
-import { getAgentDir, type ExtensionAPI, type ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, type ExtensionContext, getAgentDir, type ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -320,6 +320,39 @@ export default async function (pi: ExtensionAPI, options?: PluginOptions) {
     baseUrl,
     apiKey: options?.apiKey ?? "$AXONHUB_API_KEY",
     models,
+  });
+
+  // Track the user-message entry ID for the current agent loop (one per user prompt).
+  let promptEntryId: string | null = null;
+
+  // Reset on each new agent loop so the next prompt captures a fresh entry ID.
+  pi.on("agent_start", () => {
+    promptEntryId = null;
+  });
+
+  // @ts-expect-error - ExtensionAPI.on exists at runtime via jiti, but ts can't resolve due to symlink
+  pi.on("context", (_event: unknown, ctx: ExtensionContext) => {
+    const model = ctx.model;
+    if (!model || (model as { provider: string }).provider !== PROVIDER_ID) return;
+
+    // AH-Thread-Id: session ID (empty string if unavailable)
+    const sessionId = ctx.sessionManager.getSessionId() || "";
+
+    // AH-Trace-Id: user message entry ID, captured once per agent loop.
+    // On the first context call the leaf points to the user message;
+    // on subsequent calls (tool-call loop) we reuse the cached value.
+    if (!promptEntryId) {
+      const leafId = ctx.sessionManager.getLeafId() ?? "";
+      promptEntryId = sessionId && leafId ? `${sessionId}:${leafId}` : leafId;
+    }
+
+    // Mutate model.headers in place so streamFn picks up the new values
+    const existing = (model as { headers?: Record<string, string> }).headers;
+    (model as { headers?: Record<string, string> }).headers = {
+      ...existing,
+      "AH-Thread-Id": sessionId,
+      "AH-Trace-Id": promptEntryId,
+    };
   });
 
   // Inject web_search tool for gpt-* models from axonhub
