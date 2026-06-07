@@ -166,9 +166,13 @@ async function loadModels(baseUrl: string, key: string, ttl: number) {
   const cached = await readFreshCache<AxonHubModelsResponse>(AXONHUB_CACHE_FILE, ttl);
   if (cached) return cached;
 
-  const payload = await fetchModels(baseUrl, key);
-  await writeCache(AXONHUB_CACHE_FILE, payload);
-  return payload;
+  try {
+    const payload = await fetchModels(baseUrl, key);
+    await writeCache(AXONHUB_CACHE_FILE, payload);
+    return payload;
+  } catch {
+    return (await readCache<AxonHubModelsResponse>(AXONHUB_CACHE_FILE)) ?? { data: [] };
+  }
 }
 
 async function fetchModelsDev() {
