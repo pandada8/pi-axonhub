@@ -46,16 +46,24 @@ type AxonHubModelsResponse = {
   data?: AxonHubModel[];
 };
 
+type ModelsDevReasoningOption =
+  | { type: "toggle" }
+  | { type: "effort"; values?: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "default" | null)[] }
+  | { type: "budget_tokens"; min?: number; max?: number };
+
 type ModelsDevModel = {
   id?: string;
   name?: string;
   attachment?: boolean;
   reasoning?: boolean;
+  reasoning_options?: ModelsDevReasoningOption[];
   tool_call?: boolean;
   modalities?: {
     input?: string[];
     output?: string[];
   };
+  family?: string;
+  canonical_model_id?: string;
   cost?: {
     input?: number;
     output?: number;
@@ -264,7 +272,55 @@ function isAnthropicAdaptiveThinkingModel(id: string) {
   );
 }
 
-function modelCompat(id: string, owner?: string): ProviderModelConfig["compat"] | undefined {
+function effortValues(cached?: ModelsDevModel): string[] {
+  const values: string[] = [];
+  for (const option of cached?.reasoning_options ?? []) {
+    if (option.type !== "effort") continue;
+    for (const value of option.values ?? []) {
+      if (typeof value === "string") values.push(value);
+    }
+  }
+  return values;
+}
+
+/** Qwen/DashScope-compatible endpoints, which accept a full reasoning_effort ladder including "none". */
+function isQwenModel(id: string, cached?: ModelsDevModel) {
+  return (
+    cached?.family === "qwen" ||
+    cached?.id?.startsWith("qwen") ||
+    cached?.canonical_model_id?.startsWith("alibaba/") ||
+    id.startsWith("qwen")
+  );
+}
+
+/**
+ * Whether the endpoint takes an OpenAI-style `reasoning_effort`. models.dev is the source of truth
+ * when it documents effort values; qwen is verified directly against AxonHub (none/minimal/low/
+ * medium/high/xhigh/max all accepted, "default" rejected), and Axonhub normalizes the ladder for
+ * models its catalog does not describe.
+ */
+function supportsReasoningEffort(id: string, reasoning: boolean, cached?: ModelsDevModel) {
+  if (!reasoning) return false;
+  if (effortValues(cached).length > 0) return true;
+  // Documented thinking control without an effort ladder (toggle and/or budget only): trust it and
+  // leave reasoning_effort out rather than risk a 400.
+  if ((cached?.reasoning_options ?? []).length > 0) return false;
+  // Undocumented model: qwen-compatible endpoints accept reasoning_effort (verified against AxonHub).
+  return isQwenModel(id, cached);
+}
+
+/**
+ * OpenAI-compatible backends behind AxonHub take `reasoning_effort`, but pi only sends it when
+ * `supportsReasoningEffort` is true. With the previous hardcoded `false`, combined with
+ * `thinkingFormat: "openai"` (which has no branch of its own and falls through to that same flag),
+ * no thinking field was ever emitted and the selected thinking level had no effect on the request.
+ */
+function modelCompat(
+  id: string,
+  owner: string | undefined,
+  reasoning: boolean,
+  cached?: ModelsDevModel,
+): ProviderModelConfig["compat"] | undefined {
   if (owner === "anthropic") {
     return isAnthropicAdaptiveThinkingModel(id) ? { forceAdaptiveThinking: true } : undefined;
   }
@@ -272,10 +328,33 @@ function modelCompat(id: string, owner?: string): ProviderModelConfig["compat"] 
   return {
     supportsStore: false,
     supportsDeveloperRole: false,
-    supportsReasoningEffort: false,
+    supportsReasoningEffort: supportsReasoningEffort(id, reasoning, cached),
     maxTokensField: "max_tokens" as const,
     thinkingFormat: "openai" as const,
   };
+}
+
+/**
+ * Thinking level overrides. Only `off` and the extended levels (`xhigh`, `max`) are set: pi gates
+ * `xhigh`/`max` behind an explicit mapping, and pi passes unmapped levels through unchanged, while a
+ * `null` would drop the whole parameter. models.dev lists only part of the ladder (qwen reports
+ * low/medium/xhigh), so nulling the rest would silently disable thinking control again.
+ */
+function modelThinkingLevelMap(
+  id: string,
+  reasoning: boolean,
+  cached?: ModelsDevModel,
+): Record<string, string | null> | undefined {
+  if (!supportsReasoningEffort(id, reasoning, cached)) return;
+  const values = effortValues(cached);
+  const map: Record<string, string | null> = {};
+  for (const level of ["xhigh", "max"] as const) {
+    if (values.includes(level)) map[level] = level;
+  }
+  // Advertise "off" only where a no-thinking effort value is known to work, otherwise pi would send
+  // reasoning_effort: "none" to servers that reject it.
+  if (values.includes("none") || isQwenModel(id, cached)) map.off = "none";
+  return Object.keys(map).length > 0 ? map : undefined;
 }
 
 function toProviderModel(baseUrl: string, item: AxonHubModel, match?: ModelsDevMatch): AxonHubModelConfig | undefined {
@@ -283,13 +362,15 @@ function toProviderModel(baseUrl: string, item: AxonHubModel, match?: ModelsDevM
 
   const cached = match?.model;
   const owner = ownerFromMatch(item, match);
+  const reasoning = item.capabilities?.reasoning ?? cached?.reasoning ?? true;
   const supportsVision = item.capabilities?.vision ?? cached?.attachment ?? hasModality(cached, "input", "image") ?? true;
 
   return {
     id: item.id,
     name: item.name ?? item.display_name ?? cached?.name ?? item.id,
     api: modelApi(item.id, owner),
-    reasoning: item.capabilities?.reasoning ?? cached?.reasoning ?? true,
+    reasoning,
+    thinkingLevelMap: modelThinkingLevelMap(item.id, reasoning, cached),
     input: supportsVision ? ["text", "image"] : ["text"],
     cost: {
       input: item.pricing?.input ?? cached?.cost?.input ?? 0,
@@ -299,7 +380,7 @@ function toProviderModel(baseUrl: string, item: AxonHubModel, match?: ModelsDevM
     },
     contextWindow: item.context_length ?? cached?.limit?.context ?? 200000,
     maxTokens: item.max_output_tokens ?? cached?.limit?.output ?? 32000,
-    compat: modelCompat(item.id, owner),
+    compat: modelCompat(item.id, owner, reasoning, cached),
     baseUrl: modelBaseUrl(baseUrl, owner),
   };
 }

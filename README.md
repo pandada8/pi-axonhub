@@ -48,3 +48,15 @@ pi -e /path/to/pi-axonhub
 ```
 
 OpenAI-compatible models are sent to AxonHub `/v1`. Anthropic-owned models are sent to AxonHub `/anthropic`. Gemini-owned models are sent to AxonHub `/gemini`.
+
+## Thinking levels
+
+OpenAI-compatible models only receive a thinking control if pi is told the endpoint accepts one. The
+extension sets `compat.supportsReasoningEffort` from `models.dev` `reasoning_options` effort values
+(and, for undocumented Qwen/DashScope models, from the verified AxonHub behaviour), so the selected
+thinking level is sent as `reasoning_effort` instead of being dropped. `reasoning_effort: "none"` is
+used for thinking off on those models.
+
+Levels other than `off`, `xhigh` and `max` are passed through untouched. Nulling the levels a
+`models.dev` entry omits would make pi drop the whole parameter again (Qwen lists only
+`low/medium/xhigh`, while AxonHub also accepts `none/minimal/high/max`).

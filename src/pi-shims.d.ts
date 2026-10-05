@@ -17,6 +17,7 @@ declare module "@earendil-works/pi-ai" {
     provider: Provider;
     baseUrl: string;
     reasoning: boolean;
+    thinkingLevelMap?: Partial<Record<"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max", string | null>>;
     input: ("text" | "image")[];
     cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
     contextWindow: number;
@@ -96,6 +97,7 @@ declare module "@earendil-works/pi-coding-agent" {
     api?: Api;
     baseUrl?: string;
     reasoning: boolean;
+    thinkingLevelMap?: Model<Api>["thinkingLevelMap"];
     input: ("text" | "image")[];
     cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
     contextWindow: number;
