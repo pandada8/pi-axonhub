@@ -351,6 +351,9 @@ function modelThinkingLevelMap(
   for (const level of ["xhigh", "max"] as const) {
     if (values.includes(level)) map[level] = level;
   }
+  // models.dev omits "max" for qwen, but AxonHub and Bailian both accept it (served as xhigh),
+  // and pi only exposes xhigh/max when explicitly mapped.
+  if (isQwenModel(id, cached)) map.max = "max";
   // Advertise "off" only where a no-thinking effort value is known to work, otherwise pi would send
   // reasoning_effort: "none" to servers that reject it.
   if (values.includes("none") || isQwenModel(id, cached)) map.off = "none";
