@@ -100,22 +100,37 @@ function resolveOption(value: string | undefined) {
   return process.env[value] || value;
 }
 
-function resolveBaseUrl(options?: PluginOptions) {
-  return normalizeBaseUrl(options?.baseUrl ?? process.env.AXONHUB_BASE_URL ?? DEFAULT_BASE_URL);
+type PiAuthConfig = {
+  type?: string;
+  key?: string;
+  baseUrl?: string;
+  base_url?: string;
+};
+
+function resolveBaseUrl(options?: PluginOptions, auth?: PiAuthConfig) {
+  const authBaseUrl =
+    typeof auth?.baseUrl === "string" && auth.baseUrl.trim().length > 0
+      ? auth.baseUrl.trim()
+      : typeof auth?.base_url === "string" && auth.base_url.trim().length > 0
+        ? auth.base_url.trim()
+        : undefined;
+
+  return normalizeBaseUrl(options?.baseUrl ?? process.env.AXONHUB_BASE_URL ?? authBaseUrl ?? DEFAULT_BASE_URL);
 }
 
-function resolveApiKey(options?: PluginOptions) {
-  return resolveOption(options?.apiKey) ?? process.env.AXONHUB_API_KEY;
+function resolveApiKey(options?: PluginOptions, auth?: PiAuthConfig) {
+  const authKey =
+    auth?.type === "api_key" && typeof auth.key === "string" && auth.key.length > 0 ? auth.key : undefined;
+  return resolveOption(options?.apiKey) ?? process.env.AXONHUB_API_KEY ?? authKey;
 }
 
-async function readPiAuthApiKey() {
+async function readPiAuthConfig(): Promise<PiAuthConfig | undefined> {
   try {
     const payload = JSON.parse(await readFile(join(getAgentDir(), "auth.json"), "utf8")) as Record<
       string,
-      { type?: string; key?: string }
+      PiAuthConfig
     >;
-    const auth = payload[PROVIDER_ID];
-    if (auth?.type === "api_key" && typeof auth.key === "string" && auth.key.length > 0) return auth.key;
+    return payload[PROVIDER_ID];
   } catch {
     return;
   }
@@ -389,8 +404,9 @@ function toProviderModel(baseUrl: string, item: AxonHubModel, match?: ModelsDevM
 }
 
 export default async function (pi: ExtensionAPI, options?: PluginOptions) {
-  const baseUrl = resolveBaseUrl(options);
-  const key = resolveApiKey(options) ?? (await readPiAuthApiKey());
+  const auth = await readPiAuthConfig();
+  const baseUrl = resolveBaseUrl(options, auth);
+  const key = resolveApiKey(options, auth);
   if (!key) return;
 
   const ttl = options?.cacheTtl ?? CACHE_TTL;

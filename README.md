@@ -28,18 +28,19 @@ export AXONHUB_API_KEY=ah-your-api-key
 pi
 ```
 
-You can also store the key in `~/.pi/agent/auth.json`:
+You can also store the key and base URL in `~/.pi/agent/auth.json`:
 
 ```json
 {
   "axonhub": {
     "type": "api_key",
-    "key": "ah-your-api-key"
+    "key": "ah-your-api-key",
+    "baseUrl": "http://localhost:8090"
   }
 }
 ```
 
-When using `auth.json`, `AXONHUB_API_KEY` is not required. `AXONHUB_BASE_URL` is optional and defaults to `http://localhost:8090`.
+When using `auth.json`, `AXONHUB_API_KEY` is not required. `baseUrl` (or `AXONHUB_BASE_URL`) is optional and defaults to `http://localhost:8090`. Environment variables take precedence over `auth.json`.
 
 For local development, point Pi directly at this checkout:
 
